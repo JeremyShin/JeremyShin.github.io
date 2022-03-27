@@ -4,7 +4,8 @@ title: About
 permalink: /about/
 ---
 
-* 펫프렌즈 EMR MWAA 파이프라인 구축(Bronze -> Silver -> Gold) (재직중)
+* 펫프렌즈 데이터개발팀 EMR MWAA 파이프라인 구축 (재직중)
+  * (bronze -> silver -> gold)
 * 포들리 DE 데이터 인프라 구축 (8개월)
 * 굿닥 데이터팀 트레져데이터 플랫폼 활용 데이터 서빙 (1년)
 * 데이터스트림즈 ETL엔지니어 사업관리(1년), 제안서(6개월)
