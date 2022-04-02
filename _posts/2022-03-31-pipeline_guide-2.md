@@ -5,6 +5,7 @@ title: 데이터 파이프라인 핵심 가이드 정리(4장)
 
 
 
+
 #  데이터 파이프라인 핵심 가이드
 
 01. 데이터 파이프라인 소개
@@ -78,4 +79,33 @@ NOTE- 이진 로그 복제는 **스트리밍 데이터 수집**을 수행하는 
 
 NOTE- 변경할 수 없는 데이터가 표함된 테이블의 경우에는 LastUpdated 열 대신 레코드가 생성된 시간에 대한 타임스탬프를 사용할 수 있다.
 
--- 36 page 시작 부분부터 ! 
+* {{last_extraction_run}} 변수는 추출 작업의 최근 실행 시간을 나타내는 타임스탬프다. 일반적으로 DW 대상 테이블에서 쿼리된다. 이 경우 DW =에서 SQL을 사용하여 {{ last_extraction_run }}에 사용된 결괏값을 확인한다.
+<script src="https://gist.github.com/JeremyShin/28a190044efd8740caf9f18add629989.js"></script>
+
+TIP - 마지막으로 업데이트된 날짜 캐시
+Orders 테이블이 큰 경우 추출 작업을 빠르게 수행할 수 있도록 로그 테이블에 마지막으로 업데이트된 레코드의 값을 저장할 수 있다.대상 테이블에 MAX(LastUpdated) 값을 DW에 저장해야 한다. 
+* 증분 추출이 최적의 성능에 이상적임 하지만 단점과 이유가 있으니 살펴보자
+	* 삭제된 행은 캡처되지 않음
+	* 원본 테이블에서 마지막 업데이트 시간에 대해 신뢰 가능해야 함
+* MySQL DB에서 전체 및 증분 추출은 모두 DB에서 실행되지만 파이썬 스크립트에 의해 트리거되는 SQL 쿼리를 사용하여 구현 가능하다
+* 관련 설정은 책을 참고하자
+* MySQL 관련 DB 연결 초기화 코드 공유 및 csv 파일을 s3 버킷에 업로드하는 코드를 확인해보자
+
+<script src="https://gist.github.com/JeremyShin/cdf8f648dbca8c0ebc06228c5a06202a.js"></script>
+
+* 스크립트가 실행되면 Orders 테이블의 전체 내용이 DW / 데이터 스토어에 로드되기를 기다리는 S3 버킷의 CSV 파일에 포함된다.
+* 데이터를 증분 추출하려면 스크립트를 수정해야 한다. extract_mysql_full.py 파일을 복사하여 extract_mysql_incremental.py 사본에서 시작하는 것을 추천한다
+* Redshift 클러스터와 상호작용하려면 psycopg2 라이브러리를 설치한다. (pip install psycopy2)
+* 다음은 Redshipt 클러스터에 연결하고 쿼리하여 Orders 테이블에서 MAX(LastUpdated) 값을 가져오는 코드다.
+<script src="https://gist.github.com/JeremyShin/45c97f0163a4d186f231248c700ee214.js"></script>
+
+* last_update_warehouse에 저장된 값을 사용하여 MySQL DB에서 실행되는 추출 쿼리를 수정한다.
+* 다음은 MySQL DB에서 SQL 쿼리를 실행해주는 업데이트된 코드다.
+<script src="https://gist.github.com/JeremyShin/99a35d24531ad34c464cd313ce97873d.js"></script>
+
+* 증분 추출을 위한 전체 extract_mysql_incremental.py 스크립트 (last_updated 값에 대해 redseift 클러스터를 사용)는 다음과 같다.
+<script src="https://gist.github.com/JeremyShin/8804eb6b718705b009edc51f6285147c.js"></script>
+
+i경고 - SQL 추출은 DB에 부담을 주며 프로덕션 쿼리 실행도 차단할 수 있다. 복제본 사용을 고려하라.
+
+### MySQL 데이터의 이진 로그 복제
