@@ -1,6 +1,6 @@
 ---
 layout: post
-title: 데이터 파이프라인 핵심 가이드 정리(5장) 
+title: 데이터 파이프라인 핵심 가이드 정리(6장) 
 ---
 
 #  데이터 파이프라인 핵심 가이드
@@ -41,11 +41,11 @@ title: 데이터 파이프라인 핵심 가이드 정리(5장)
 		LastUpdated timestamp
 	);
 	
-	INSERT INTO Orders VALUES(1, "Backordered', '2020-06-01');
-	INSERT INTO Orders VALUES(1, "Shipped', '2020-06-09');
-	INSERT INTO Orders VALUES(2, "Shipped', '2020-07-11');
-	INSERT INTO Orders VALUES(1, "Shipped', '2020-06-09');
-	INSERT INTO Orders VALUES(3, "Shipped', '2020-07-12');
+	INSERT INTO Orders VALUES(1, "Backordered", "2020-06-01");
+	INSERT INTO Orders VALUES(1, "Shipped", "2020-06-09");
+	INSERT INTO Orders VALUES(2, "Shipped", "2020-07-11");
+	INSERT INTO Orders VALUES(1, "Shipped", "2020-06-09");
+	INSERT INTO Orders VALUES(3, "Shipped", "2020-07-12");
 ```
 
 * 중복 레코드 확인은 group by, having을 활용하자.
@@ -60,10 +60,32 @@ title: 데이터 파이프라인 핵심 가이드 정리(5장)
 ```
 
 * 중복을 찾았으니 아래의 2가지 방법으로 제거해보자
-	* 쿼리 시퀀스 사용
-	* 
+	* 쿼리 시퀀스 사용 - 이 방법은 작업중에 테이블이 비어있게된다.
+		```SQL
+		CREATE TABLE distinct_orders AS 
+			SELECT DISTINCT OrderId,
+							OrdersStatus,
+							LastUpdated
+			FROM ORDERS;
+		
+		TRUNCATE TABLE Orders;
+		INSERT INTO Orders SELECT * FROM distinct_orders;
+		DROP TABLE distinct_orders;
+		```
+	* 윈도우 기능 사용 
+```SQL
+	SELECT OrderId,
+			OrderStatus,
+			LastUpdated,
+			ROW_NUMBER() OVER(PARTITION BY OrderId,
+								OrderStatus,
+								LastUpdated)
+			AS dup_count
+	FROM Orders;
+```
 
 #### URL 파싱
+
 
 ### 언제 변환할 것인가, 수집 중 혹은 수집 후?
 
@@ -80,5 +102,3 @@ title: 데이터 파이프라인 핵심 가이드 정리(5장)
 #### 추가 전용(Append-only) 데이터 모델링
 
 #### 변경 캡처 데이터 모델링
-
-
