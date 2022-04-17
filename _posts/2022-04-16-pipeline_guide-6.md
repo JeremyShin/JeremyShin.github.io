@@ -1,6 +1,6 @@
 ---
 layout: post
-title: 데이터 파이프라인 핵심 가이드 정리(7장) 
+title: 데이터 파이프라인 핵심 가이드 정리(8장) 
 ---
 
 #  데이터 파이프라인 핵심 가이드
@@ -110,14 +110,133 @@ title: 데이터 파이프라인 핵심 가이드 정리(7장)
 	* 애플리케이션을 통한 예외 처리
 	* validator.py 단일 검사기의 실행으로 여러 테스트를 실행할 수 있는 기능
 
-
 ### 검증 테스트 예제
+* 위의 예제들을 validator.py 코드에 추가했다고 가정하면 아래와 같은 명령줄에서 테스트를 실행할 수 있다.
+
+		python validator.py order_count.sql order_full_count.sql equals warn
+* 이 섹션에서는 파이프라인에서 데이터를 검증하는데 유용한 샘플 테스트를 정의하겠다.
 
 #### 수집 후 중복된 레코드
+* 중복 테스트는 가장 간단하고 일반적인 테스트다. 고려할 사항은 중복을 정의할 항목이다. 단일 ID 혹은 두 번째 열까지 확인할지 결정할 수 있다.
+
+		WITH order_dups AS 
+		(
+			SELECT OrderId, COUNT(*)
+			FROM Orders
+			GROUP BY OrderId
+			HAVING COUNT (*) > 1
+		)
+		
+		SELECT COUNT(*)
+		FROM order_dups;
+
+* order_dup_zero.sql 파일을 만든다.
+
+		SELECT 0
+
+* 다음을 이용해 테스트를 수행한다.
+
+		python validator.py order_dup.sql order_dup_zero.sql equals warn
 
 #### 수집 후의 예기치 않은 행 개수
+* 이번 예제는 데이터가 매일 수집된다고 가정 후 가장 최근(어제) 로드된 Orders 테이블의 레코드 수가 우리가 생각한 범위 내에 있는지 확인한다.
+* 표준편차 계산을 사용하여 어제의 행 수가 Orders 테이블의 전체 과거 기록을 기반으로 90% 신뢰 수준 내에 있는지 확인해 보자. 
+* 통계에서 이것은 정규 분포 곡선의 양쪽 아래를 살펴보고 있기 때문에 양측 검증으로 간주된다.
+* z-점수 계산기로 신뢰구간 90%인 양측 검정을 확인하면 1.645이다.
+* order_yesterday_zscore.sql 파일을 만들어보자.
+
+		WITH orders_by_day AS (
+			SELECT 
+					CAST(OrderDate AS DATE) AS order_date,
+					COUNT(*) AS order_count
+			FROM Orders
+			GROUP BY CAST(OrderDate AS DATE)
+		),
+		order_count_zscoure AS (
+			SELECT
+					order_date,
+					order_count,
+					(order_count AVG(order_count) over()) / (STDDEV(order_count) OVER()) AS z_score
+			FROM orders_by_day
+		)
+		SELECT ABS(z_score) AS. twosided_score
+		FROM order_count_zscore
+		WHERE order_date = CAST(current_timestamp AS DATE) - interval '1 day');
+
+* 아래는 확인 값을 반환한다. zscore_90_twosided.sql
+
+		SELECT 1.645;
+
+* 테스트를 쉘에서 실행해보자.
+
+		python validator.py order_yesterday_zscore.sql zscore_90_twosided.sql greater_equals warn
+
+
 
 #### 지표 값 변동
 
+* 앞의 예제는 수집 후 데이터 유효성을 확인했다. 이 예제는 파이프라인 변환 단계에서 데이터 모델링 후 문제를 확인한다.
+* 변환 단계는 잘못된 로직을 포함하여 행을 복제하거나 삭제할 수 있는 여러 가지 문제가 발생할 수 있다. 
+* 파이프라인 끝에서 구축된 데이터 모델에 대해 검증 검사를 실행하는 것이 항상 좋은 방법이다. 
+* 다음 세 가지 사항을 확인할 수 있다.
+	* 지표 값이 특정 상한 및 하한 범위 내에 있는지 확인
+	* 데이터 모델에서 행 개수 증가(또는 감소) 확인
+	* 특정 지표 값에 예상치 못한 변동이 있는지 확인
+* 여기서는 지표 값 변동 호가인을 위한 마지막 예제 하나만 제공하고자 한다.
+* return_yesterday_zscore.sql 파일을 만들어보자.
+
+		WITH revenue_by_day AS (
+			SELECT
+					CAST(OrderDate AS DATE) AS order_date,
+					SUM(ordertotal) AS total_revenue
+			FROM Orders
+			GROUP BY CAST(OrderDate AS DATE)
+		),
+		daily_revenue_zscore AS (
+			SELECT 
+					order_date,
+					total_revenue,
+					(total_revenue - AVG(total_revenue) over()) / stddev(total_revenue) over()) AS z_score
+			FROM revenue_by_day
+		)
+		SELECT ABS(z_score) AS twosided_score
+		FROM daily_revenue_zscore
+		WHERE order_date = CAST(current_timestamp AS DATE) - interval '1 day';
+
+* zscore_90_twosided.sql 
+
+		SELECT 1.645;
+
+* 테스트 실행은 아래와 같다.
+
+		python validator.py revenue_yesterday_zscore.sql zscore_90_twosided.sql greater_equals warn
+
+* 이 예제에서는 현재 날짜를 기준으로 전월의 총 수익을 확인한다.
+
+		WITH revenue_by_day AS (
+			SELECT 
+					date_part('month', order_date) AS order_month,
+					SUM(ordertotal) AS total_revenue
+			FROM Orders 
+			WHERE order_date > date_trunc('month', current_timestamp - interval '12 month')
+				AND order_date < date_trunc('month', current_timestamp)
+			GROUP BY date_part('month', order_date)
+		),
+		daily_revenue_zscore AS (
+			SELECT 
+					order_month,
+					total_revenue,
+					(total_revenue - AVG(total_revenue) over()) / (STDDEV(total_revenue) over()) AS z_score
+			FROM revenue_by_day
+		)
+		SELECT ABS(z_score) AS twosided_score
+		FROM daily_revenue_zscore
+		WHERE order_month = date_part('month', date_trunc('month', current_timestamp - interval '1 months'));
+
+* 데이터 모델 지표값에 대한 검증은 비즈니스 컨텍스트를 잘 알고있는 분석가에게 맡기는 것이 최선이다. 
+
+
 ### 상용 및 오픈 소스 데이터 검증 프레임워크
+* 일부 데이터 수집 도구는 행 수 변경, 예기치 않은 값 등을 확인하는 기능이 포함되어 있다. dbt 같은 데이터 변환 프레임워크에는 기능적으로 데이터 유효성 검사 및 테스트가 포함된다. 
+* 데이터 검증을 위한 오픈소스 프레임워크도 있다. 머신러닝 파이프라인을 구축하고 텐서플로를 사용하는 경우 텐서플로 데이터 검증을 고려할 수 있다. 일반적인 검증은 Yahoo의 Validator라는 옵션도 사용 가능하다.
 
